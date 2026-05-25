@@ -23,10 +23,20 @@ export interface Candidate {
   snippet?: string;
 }
 
+export interface SelectedCandidatePayload {
+  title: string;
+  source: string;
+  link: string;
+}
+
 export interface SearchRequest {
   intentMode: IntentMode;
-  wanted: string;
-  unwanted: string;
+  wanted?: string;
+  unwanted?: string;
+  query?: string;
+  negativeInput?: string;
+  selectedCandidate?: SelectedCandidatePayload;
+  refinementType?: "similar";
   likedCandidateId?: string;
   restartRefinement?: boolean;
   mockMode?: boolean;

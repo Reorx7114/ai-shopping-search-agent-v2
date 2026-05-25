@@ -12,12 +12,18 @@ function CandidateImage({ src, alt }: { src: string; alt: string }) {
   return <img src={src} alt={alt} className="h-40 w-full object-cover" onError={() => setFailed(true)} referrerPolicy="no-referrer" />;
 }
 
+function joinOrFallback(items: string[] | undefined, fallback = "無"): string {
+  if (!items || items.length === 0) return fallback;
+  return items.join("、");
+}
+
 export default function Home() {
   const [intentMode, setIntentMode] = useState<IntentMode>("我不確定");
   const [wanted, setWanted] = useState("");
   const [unwanted, setUnwanted] = useState("");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   const runSearch = async () => {
     setLoading(true);
@@ -25,18 +31,46 @@ export default function Home() {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intentMode, wanted, unwanted })
+        body: JSON.stringify({
+          intentMode,
+          wanted,
+          unwanted,
+          query: wanted,
+          negativeInput: unwanted
+        })
       });
       const data = (await response.json()) as SearchResponse;
       setResult(data);
+      setShowDebug(false);
     } finally {
       setLoading(false);
     }
   };
 
   const refineLikeThis = async (candidate: Candidate) => {
-    setWanted(`${wanted} ${candidate.title}`.trim());
-    await runSearch();
+    setLoading(true);
+    try {
+      const response = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: wanted,
+          intentMode,
+          negativeInput: unwanted,
+          selectedCandidate: {
+            title: candidate.title,
+            source: candidate.source,
+            link: candidate.link
+          },
+          refinementType: "similar"
+        })
+      });
+      const data = (await response.json()) as SearchResponse;
+      setResult(data);
+      setShowDebug(false);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -59,10 +93,24 @@ export default function Home() {
 
       {result && (
         <section className="space-y-4">
-          <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-auto">{JSON.stringify({ parsedIntent: result.parsedIntent, debug: result.debug }, null, 2)}</pre>
-          {result.candidates.length === 0 ? (
-            <p className="text-sm text-slate-600">目前沒有可用結果。{result.debug.errorMessage ?? ""}</p>
-          ) : (
+          <article className="bg-white border rounded-lg p-4 space-y-2">
+            <h2 className="text-base font-semibold">AI 解析結果</h2>
+            <p className="text-sm"><span className="font-medium">商品特徵：</span>{joinOrFallback(result.parsedIntent?.features)}</p>
+            <p className="text-sm"><span className="font-medium">搜尋關鍵字：</span>{joinOrFallback(result.parsedIntent?.keywords)}</p>
+            <p className="text-sm"><span className="font-medium">英文搜尋詞：</span>{joinOrFallback(result.parsedIntent?.englishKeywords)}</p>
+            <p className="text-sm"><span className="font-medium">重要線索：</span>{joinOrFallback(result.parsedIntent?.coreClues)}</p>
+            <p className="text-sm"><span className="font-medium">排除條件：</span>{joinOrFallback(result.parsedIntent?.negativeTerms, "無")}</p>
+            <p className="text-sm"><span className="font-medium">搜尋查詢：</span>{joinOrFallback(result.parsedIntent?.searchQueries)}</p>
+            <p className="text-sm text-slate-600 pt-1">
+              {result.candidates.length > 0 ? "已為你找到候選商品。" : "目前沒有找到候選商品，請換個說法或放寬條件。"}
+            </p>
+            <button type="button" className="text-xs underline text-slate-500" onClick={() => setShowDebug((v) => !v)}>
+              {showDebug ? "隱藏除錯資訊" : "顯示除錯資訊"}
+            </button>
+            {showDebug && <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-auto">{JSON.stringify({ parsedIntent: result.parsedIntent, debug: result.debug }, null, 2)}</pre>}
+          </article>
+
+          {result.candidates.length === 0 ? null : (
             <div className="grid md:grid-cols-3 gap-4">
               {result.candidates.map((candidate) => (
                 <article key={candidate.id} className="bg-white border rounded overflow-hidden">

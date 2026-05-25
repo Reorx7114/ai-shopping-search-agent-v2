@@ -16,12 +16,15 @@ export async function POST(request: Request) {
     const body = (await request.json()) as SearchRequest;
     const parseResult = await parseIntent({
       intentMode: body.intentMode,
-      wanted: body.wanted,
-      unwanted: body.unwanted
+      wanted: body.wanted ?? body.query ?? "",
+      unwanted: body.unwanted ?? body.negativeInput ?? ""
     });
 
     const baseQueries = parseResult.parsedIntent.searchQueries;
-    const refined = buildRefinedQuery(parseResult.parsedIntent);
+    const refined = buildRefinedQuery(
+      parseResult.parsedIntent,
+      body.refinementType === "similar" ? body.selectedCandidate : undefined
+    );
     const generatedQueries = Array.from(new Set([refined, ...baseQueries])).filter(Boolean);
 
     let candidates: Candidate[] = [];
