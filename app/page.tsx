@@ -59,26 +59,30 @@ export default function Home() {
 
       {result && (
         <section className="space-y-4">
-          <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-auto">{JSON.stringify(result.parsedIntent, null, 2)}</pre>
-          <div className="grid md:grid-cols-3 gap-4">
-            {result.candidates.map((candidate) => (
-              <article key={candidate.id} className="bg-white border rounded overflow-hidden">
-                <CandidateImage src={candidate.image} alt={candidate.title} />
-                <div className="p-3 space-y-2">
-                  <h2 className="font-medium text-sm">{candidate.title}</h2>
-                  <p className="text-xs text-slate-500">{candidate.source}</p>
-                  <div className="flex gap-2 text-xs">
-                    <a href={candidate.link} target="_blank" className="underline" rel="noreferrer">
-                      查看連結
-                    </a>
-                    <button type="button" className="underline" onClick={() => refineLikeThis(candidate)}>
-                      比較像這個
-                    </button>
+          <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-auto">{JSON.stringify({ parsedIntent: result.parsedIntent, debug: result.debug }, null, 2)}</pre>
+          {result.candidates.length === 0 ? (
+            <p className="text-sm text-slate-600">目前沒有可用結果。{result.debug.errorMessage ?? ""}</p>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-4">
+              {result.candidates.map((candidate) => (
+                <article key={candidate.id} className="bg-white border rounded overflow-hidden">
+                  <CandidateImage src={candidate.image} alt={candidate.title} />
+                  <div className="p-3 space-y-2">
+                    <h2 className="font-medium text-sm">{candidate.title}</h2>
+                    <p className="text-xs text-slate-500">{candidate.source}</p>
+                    <div className="flex gap-2 text-xs">
+                      <a href={candidate.link} target="_blank" className="underline" rel="noreferrer">
+                        查看連結
+                      </a>
+                      <button type="button" className="underline" onClick={() => refineLikeThis(candidate)}>
+                        比較像這個
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+          )}
           <button type="button" className="text-sm underline" onClick={() => setResult(null)}>
             這些都不像
           </button>

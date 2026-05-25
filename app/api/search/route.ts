@@ -4,27 +4,76 @@ import { parseIntent } from "@/lib/search/intentParser";
 import { rankCandidates } from "@/lib/search/ranking";
 import { buildRefinedQuery } from "@/lib/search/refinement";
 import { searchImages } from "@/lib/search/serp";
-import type { SearchRequest } from "@/lib/search/types";
+import type { Candidate, SearchRequest, SearchResponse, SearchSource } from "@/lib/search/types";
 
 export async function POST(request: Request) {
+  const apiKeyStatus = {
+    openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    serpApiConfigured: Boolean(process.env.SERPAPI_API_KEY)
+  };
+
   try {
     const body = (await request.json()) as SearchRequest;
-    const parsedIntent = await parseIntent({
+    const parseResult = await parseIntent({
       intentMode: body.intentMode,
       wanted: body.wanted,
       unwanted: body.unwanted
     });
 
-    const refinedQuery = buildRefinedQuery(parsedIntent);
-    const serpCandidates = await searchImages(refinedQuery);
-    const candidates = rankCandidates(serpCandidates.length > 0 ? serpCandidates : mockCandidates, parsedIntent);
+    const baseQueries = parseResult.parsedIntent.searchQueries;
+    const refined = buildRefinedQuery(parseResult.parsedIntent);
+    const generatedQueries = Array.from(new Set([refined, ...baseQueries])).filter(Boolean);
 
-    return NextResponse.json({
-      parsedIntent,
-      candidates
-    });
+    let candidates: Candidate[] = [];
+    let searchSource: SearchSource = "none";
+    let errorMessage = parseResult.errorMessage;
+
+    if (apiKeyStatus.serpApiConfigured) {
+      const serp = await searchImages(generatedQueries);
+      if (serp.errorMessage) {
+        errorMessage = errorMessage ? `${errorMessage}; ${serp.errorMessage}` : serp.errorMessage;
+      } else {
+        candidates = rankCandidates(serp.candidates, parseResult.parsedIntent);
+        searchSource = "serpapi";
+      }
+    } else if (!apiKeyStatus.openaiConfigured && body.mockMode !== false) {
+      candidates = rankCandidates(mockCandidates, parseResult.parsedIntent);
+      searchSource = "mock";
+      errorMessage = errorMessage ?? "Both OPENAI_API_KEY and SERPAPI_API_KEY are missing; using mock data";
+    } else {
+      errorMessage = errorMessage ?? "SERPAPI_API_KEY is missing; search results are empty";
+    }
+
+    const response: SearchResponse = {
+      parsedIntent: parseResult.parsedIntent,
+      candidates,
+      debug: {
+        apiKeyStatus,
+        parserSource: parseResult.parserSource,
+        searchSource,
+        intentMode: parseResult.parsedIntent.intentMode,
+        generatedQueries,
+        errorMessage
+      }
+    };
+
+    return NextResponse.json(response);
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "search_failed" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "search_failed";
+    return NextResponse.json(
+      {
+        parsedIntent: null,
+        candidates: [],
+        debug: {
+          apiKeyStatus,
+          parserSource: "fallback",
+          searchSource: "none",
+          intentMode: "我不確定",
+          generatedQueries: [],
+          errorMessage: message
+        }
+      },
+      { status: 500 }
+    );
   }
 }
