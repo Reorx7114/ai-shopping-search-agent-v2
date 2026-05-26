@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Candidate, IntentMode, SearchResponse } from "@/lib/search/types";
+import type { Candidate, IntentMode, SearchApiResponse } from "@/lib/search/types";
 import { INTENT_MODES } from "@/lib/search/types";
 
 function CandidateImage({ src, alt }: { src: string; alt: string }) {
@@ -21,9 +21,9 @@ export default function Home() {
   const [intentMode, setIntentMode] = useState<IntentMode>("我不確定");
   const [wanted, setWanted] = useState("");
   const [unwanted, setUnwanted] = useState("");
-  const [result, setResult] = useState<SearchResponse | null>(null);
+  const [result, setResult] = useState<SearchApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
+  const [showDebug, setShowDebug] = useState<boolean>(false);
 
   const runSearch = async () => {
     setLoading(true);
@@ -39,7 +39,7 @@ export default function Home() {
           negativeInput: unwanted
         })
       });
-      const data = (await response.json()) as SearchResponse;
+      const data = (await response.json()) as SearchApiResponse;
       setResult(data);
       setShowDebug(false);
     } finally {
@@ -65,7 +65,7 @@ export default function Home() {
           refinementType: "similar"
         })
       });
-      const data = (await response.json()) as SearchResponse;
+      const data = (await response.json()) as SearchApiResponse;
       setResult(data);
       setShowDebug(false);
     } finally {
@@ -93,6 +93,20 @@ export default function Home() {
 
       {result && (
         <section className="space-y-4">
+          {result.blocked ? (
+            <article className="bg-white border rounded-lg p-4 space-y-2">
+              <h2 className="text-base font-semibold">安全提示</h2>
+              <p className="text-sm text-slate-700">這個需求可能涉及違法或高風險服務，因此我不能協助搜尋或提供連結。你可以改搜尋合法、安全的一般商品、旅遊、住宿或靈感內容。</p>
+              <button type="button" className="text-xs underline text-slate-500" onClick={() => setShowDebug((v) => !v)} aria-expanded={showDebug}>
+                {showDebug ? "隱藏除錯資訊" : "顯示除錯資訊"}
+              </button>
+              {showDebug ? (
+                <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-auto">
+                  {JSON.stringify(result, null, 2)}
+                </pre>
+              ) : null}
+            </article>
+          ) : (
           <article className="bg-white border rounded-lg p-4 space-y-2">
             <h2 className="text-base font-semibold">AI 解析結果</h2>
             <p className="text-sm"><span className="font-medium">商品特徵：</span>{joinOrFallback(result.parsedIntent?.features)}</p>
@@ -104,13 +118,18 @@ export default function Home() {
             <p className="text-sm text-slate-600 pt-1">
               {result.candidates.length > 0 ? "已為你找到候選商品。" : "目前沒有找到候選商品，請換個說法或放寬條件。"}
             </p>
-            <button type="button" className="text-xs underline text-slate-500" onClick={() => setShowDebug((v) => !v)}>
+            <button type="button" className="text-xs underline text-slate-500" onClick={() => setShowDebug((v) => !v)} aria-expanded={showDebug}>
               {showDebug ? "隱藏除錯資訊" : "顯示除錯資訊"}
             </button>
-            {showDebug && <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-auto">{JSON.stringify({ parsedIntent: result.parsedIntent, debug: result.debug }, null, 2)}</pre>}
+            {showDebug ? (
+              <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-auto">
+                {JSON.stringify({ parsedIntent: result.parsedIntent, debug: result.debug }, null, 2)}
+              </pre>
+            ) : null}
           </article>
+          )}
 
-          {result.candidates.length === 0 ? null : (
+          {result.blocked || result.candidates.length === 0 ? null : (
             <div className="grid md:grid-cols-3 gap-4">
               {result.candidates.map((candidate) => (
                 <article key={candidate.id} className="bg-white border rounded overflow-hidden">

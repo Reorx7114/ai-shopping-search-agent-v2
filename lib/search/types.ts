@@ -54,8 +54,22 @@ export interface SearchDebug {
   errorMessage?: string;
 }
 
+
+export interface BlockedSearchResponse {
+  blocked: true;
+  safetyReason: string;
+  candidates: Candidate[];
+  parsedIntent: null;
+  intentMode: IntentMode;
+  generatedQueries: string[];
+  errorMessage: string;
+}
+
 export interface SearchResponse {
+  blocked?: false;
   parsedIntent: ParsedIntent | null;
   candidates: Candidate[];
   debug: SearchDebug;
 }
+
+export type SearchApiResponse = SearchResponse | BlockedSearchResponse;
