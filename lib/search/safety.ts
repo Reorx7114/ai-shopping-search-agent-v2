@@ -2,26 +2,39 @@ import type { IntentMode, ParsedIntent, SearchRequest } from "./types";
 
 const BLOCK_REASON = "此需求可能涉及違法或高風險服務，因此無法協助搜尋。";
 
-const ILLEGAL_CATEGORY_PATTERNS: RegExp[] = [
-  /毒品|一級毒品|二級毒品|三級毒品|四級毒品|k他命|ketamine|海洛因|heroin|安非他命|meth|搖頭丸|mdma|fm2|毒咖啡包|喪屍菸彈|大麻|cannabis|marijuana|drug/i,
-  /電子菸|菸彈|煙彈|vape|vaping|e-cigarette|ecigarette|買毒|拿貨|管道|門路|黑話|毒交易/i,
-  /嫖妓|買春|找雞|約砲|打炮|陪睡|過夜|女伴過夜|找女人陪我|女人陪我過夜|半套|全套|樓鳳|茶訊|援交|1s|2s|3s|sexual\s*activity/i,
-  /escort|sex\s*service|overnight\s*companion|female\s*companion\s*overnight/i,
-  /槍枝|手槍|步槍|黑槍|子彈|彈藥|花生米|噴子|芭樂|土炮|改槍|假槍|空氣槍|瓦斯槍|bb槍|火藥|炸藥|爆裂物|爆竹改造|gun|firearm/i,
-  /詐騙教學|話術|車手|水房|洗錢|人頭帳戶|人頭門號|盜刷|黑卡|假證件|假身分證|假護照|假駕照|假發票|個資買賣|資料外流購買|黑市服務|地下服務|fraud/i,
-  /暗網|dark\s*web|darknet|onion|非法市場|地下市場|黑市|darknet\s*marketplace|onion\s*market/i
-];
+type SafetyStage = "pre-parse" | "post-parse" | "pre-serpapi";
 
-const FACILITATION_PATTERNS: RegExp[] = [
-  /怎麼不被抓|怎麼避開警察|怎麼安全交易|哪裡拿貨|哪裡有門路|怎麼聯絡|私下交易|匿名購買|不留紀錄|免實名|隱密配送/i,
-  /how\s*to\s*avoid\s*police|anonymous\s*buy|no\s*record|private\s*deal/i
+const UNSAFE_PATTERNS: Array<{ pattern: RegExp; term: string }> = [
+  // weapon
+  { pattern: /buy\s+guns?/i, term: "buy gun" },
+  { pattern: /where\s+to\s+buy\s+guns?/i, term: "where to buy gun" },
+  { pattern: /gun\s+online/i, term: "gun online" },
+  { pattern: /firearms?|handgun|rifle|airsoft\s*gun|bb\s*gun|black\s*gun|illegal\s*gun/i, term: "firearm" },
+  { pattern: /買槍|哪裡買槍|槍枝?|黑槍|手槍|步槍|子彈|彈藥|花生米|噴子|芭樂|土炮|改槍/i, term: "槍" },
+  // sexual
+  { pattern: /sexual\s*activity|sex\s*service|female\s*services?|escort|companion|personal\s*companion|overnight\s*companion|one\s*night\s*stand|dating\s*service|adult\s*service|massage\s*service/i, term: "sexual activity" },
+  { pattern: /打炮|約砲|找雞|買春|嫖妓|陪睡|過夜|女伴|找女人|女人陪我|茶訊|半套|全套|1s|2s|3s/i, term: "性交易" },
+  // vape/tobacco
+  { pattern: /vape|e-?cigarette|ecigarette|tobacco|nicotine|smoke\s*shop/i, term: "vape" },
+  { pattern: /電子菸|電子煙|菸彈|煙彈|加熱菸|墊子菸|菸|煙/i, term: "電子菸" },
+  // drugs
+  { pattern: /drugs?|ketamine|heroin|cocaine|meth|amphetamine|mdma|cannabis|marijuana/i, term: "drug" },
+  { pattern: /k他命|海洛因|安非他命|搖頭丸|大麻|毒品|毒咖啡包|喪屍菸彈|拿貨|門路/i, term: "毒品" },
+  // darknet
+  { pattern: /dark\s*web|darknet|onion|black\s*market|illegal\s*market|underground\s*market/i, term: "darknet" },
+  { pattern: /暗網|黑市|地下市場|地下交易/i, term: "黑市" },
+  // fraud
+  { pattern: /fraud|scam|money\s*laundering|fake\s*id|fake\s*passport|stolen\s*credit\s*card|carding|mule\s*account|burner\s*phone/i, term: "fraud" },
+  { pattern: /洗錢|詐騙|車手|水房|人頭帳戶|人頭門號|黑卡|盜刷|假證件|假身分證|假護照|假發票|個資買賣/i, term: "詐騙" },
+  // facilitation
+  { pattern: /how\s*not\s*to\s*get\s*caught|avoid\s*police|anonymous\s*purchase|no\s*record|private\s*deal/i, term: "avoid police" },
+  { pattern: /不被抓|避開警察|匿名購買|不留紀錄|私下交易|隱密配送|哪裡拿貨|哪裡有門路/i, term: "不被抓" }
 ];
-
-const RISK_HINT_PATTERNS: RegExp[] = [/買|賣|交易|取得|製作|改造|門路|管道|聯絡|market|buy|get|source|channel/i];
 
 export interface SafetyCheckResult {
   blocked: boolean;
   reason?: string;
+  matchedTerm?: string;
 }
 
 function normalizeText(input: string): string {
@@ -30,19 +43,16 @@ function normalizeText(input: string): string {
 
 function checkSafetyText(text: string): SafetyCheckResult {
   const normalized = normalizeText(text);
-  const hitIllegalCategory = ILLEGAL_CATEGORY_PATTERNS.some((re) => re.test(normalized));
-  const hitFacilitation = FACILITATION_PATTERNS.some((re) => re.test(normalized));
-  const hitRiskHint = RISK_HINT_PATTERNS.some((re) => re.test(normalized));
-
-  if (hitIllegalCategory || (hitFacilitation && hitRiskHint)) {
-    return { blocked: true, reason: BLOCK_REASON };
+  for (const rule of UNSAFE_PATTERNS) {
+    if (rule.pattern.test(normalized)) {
+      return { blocked: true, reason: BLOCK_REASON, matchedTerm: rule.term };
+    }
   }
-
   return { blocked: false };
 }
 
 export function buildSafetyInput(body: SearchRequest): string {
-  const parts = [
+  return [
     body.query,
     body.wanted,
     body.negativeInput,
@@ -52,8 +62,9 @@ export function buildSafetyInput(body: SearchRequest): string {
     body.selectedCandidate?.link,
     body.refinementType,
     body.intentMode
-  ];
-  return parts.filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function checkSearchSafety(body: SearchRequest): SafetyCheckResult {
@@ -73,11 +84,11 @@ export function checkParsedIntentSafety(parsedIntent: ParsedIntent, generatedQue
   return checkSafetyText(text);
 }
 
-export function checkGeneratedQueriesSafety(generatedQueries: string[]): SafetyCheckResult {
-  return checkSafetyText(generatedQueries.join(" "));
+export function checkGeneratedQueriesSafety(finalQueries: string[]): SafetyCheckResult {
+  return checkSafetyText(finalQueries.join(" "));
 }
 
-export function buildBlockedResponse(intentMode: IntentMode) {
+export function buildBlockedResponse(intentMode: IntentMode, stage: SafetyStage, matchedSafetyTerm?: string) {
   return {
     blocked: true,
     safetyReason: BLOCK_REASON,
@@ -85,6 +96,8 @@ export function buildBlockedResponse(intentMode: IntentMode) {
     parsedIntent: null,
     intentMode,
     generatedQueries: [],
-    errorMessage: "Blocked by safety layer"
+    errorMessage: "Blocked by safety layer",
+    safetyStage: stage,
+    matchedSafetyTerm
   };
 }

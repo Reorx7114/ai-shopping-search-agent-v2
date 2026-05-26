@@ -63,6 +63,8 @@ export interface BlockedSearchResponse {
   intentMode: IntentMode;
   generatedQueries: string[];
   errorMessage: string;
+  safetyStage: "pre-parse" | "post-parse" | "pre-serpapi";
+  matchedSafetyTerm?: string;
 }
 
 export interface SearchResponse {

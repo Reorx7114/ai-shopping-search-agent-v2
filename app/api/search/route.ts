@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
     const safety = checkSearchSafety(body);
     if (safety.blocked) {
-      return NextResponse.json(buildBlockedResponse(body.intentMode));
+      return NextResponse.json(buildBlockedResponse(body.intentMode, "pre-parse", safety.matchedTerm));
     }
 
     const parseResult = await parseIntent({
@@ -36,12 +36,12 @@ export async function POST(request: Request) {
 
     const postParseSafety = checkParsedIntentSafety(parseResult.parsedIntent, generatedQueries);
     if (postParseSafety.blocked) {
-      return NextResponse.json(buildBlockedResponse(body.intentMode));
+      return NextResponse.json(buildBlockedResponse(body.intentMode, "post-parse", postParseSafety.matchedTerm));
     }
 
     const preSerpSafety = checkGeneratedQueriesSafety(generatedQueries);
     if (preSerpSafety.blocked) {
-      return NextResponse.json(buildBlockedResponse(body.intentMode));
+      return NextResponse.json(buildBlockedResponse(body.intentMode, "pre-serpapi", preSerpSafety.matchedTerm));
     }
 
     let candidates: Candidate[] = [];
