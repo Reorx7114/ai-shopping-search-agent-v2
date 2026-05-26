@@ -1,17 +1,14 @@
-import type { IntentMode, SearchRequest } from "./types";
+import type { IntentMode, ParsedIntent, SearchRequest } from "./types";
+
+const BLOCK_REASON = "此需求可能涉及違法或高風險服務，因此無法協助搜尋。";
 
 const ILLEGAL_CATEGORY_PATTERNS: RegExp[] = [
-  // drugs / contraband
-  /毒品|一級毒品|二級毒品|三級毒品|四級毒品|k他命|ketamine|海洛因|heroin|安非他命|meth|搖頭丸|mdma|fm2|毒咖啡包|喪屍菸彈|大麻|cannabis|marijuana/i,
-  /電子菸|菸彈|煙彈|vape|vaping|買毒|拿貨|管道|門路|黑話|毒交易/i,
-  // sexual services
-  /嫖妓|買春|找雞|約砲|打炮|陪睡|過夜|女伴過夜|找女人陪我|女人陪我過夜|半套|全套|樓鳳|茶訊|援交|1s|2s|3s/i,
+  /毒品|一級毒品|二級毒品|三級毒品|四級毒品|k他命|ketamine|海洛因|heroin|安非他命|meth|搖頭丸|mdma|fm2|毒咖啡包|喪屍菸彈|大麻|cannabis|marijuana|drug/i,
+  /電子菸|菸彈|煙彈|vape|vaping|e-cigarette|ecigarette|買毒|拿貨|管道|門路|黑話|毒交易/i,
+  /嫖妓|買春|找雞|約砲|打炮|陪睡|過夜|女伴過夜|找女人陪我|女人陪我過夜|半套|全套|樓鳳|茶訊|援交|1s|2s|3s|sexual\s*activity/i,
   /escort|sex\s*service|overnight\s*companion|female\s*companion\s*overnight/i,
-  // weapons explosives
-  /槍枝|手槍|步槍|黑槍|子彈|彈藥|花生米|噴子|芭樂|土炮|改槍|假槍|空氣槍|瓦斯槍|bb槍|火藥|炸藥|爆裂物|爆竹改造/i,
-  // fraud / black market / fake docs
-  /詐騙教學|話術|車手|水房|洗錢|人頭帳戶|人頭門號|盜刷|黑卡|假證件|假身分證|假護照|假駕照|假發票|個資買賣|資料外流購買|黑市服務|地下服務/i,
-  // darknet
+  /槍枝|手槍|步槍|黑槍|子彈|彈藥|花生米|噴子|芭樂|土炮|改槍|假槍|空氣槍|瓦斯槍|bb槍|火藥|炸藥|爆裂物|爆竹改造|gun|firearm/i,
+  /詐騙教學|話術|車手|水房|洗錢|人頭帳戶|人頭門號|盜刷|黑卡|假證件|假身分證|假護照|假駕照|假發票|個資買賣|資料外流購買|黑市服務|地下服務|fraud/i,
   /暗網|dark\s*web|darknet|onion|非法市場|地下市場|黑市|darknet\s*marketplace|onion\s*market/i
 ];
 
@@ -31,6 +28,19 @@ function normalizeText(input: string): string {
   return input.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function checkSafetyText(text: string): SafetyCheckResult {
+  const normalized = normalizeText(text);
+  const hitIllegalCategory = ILLEGAL_CATEGORY_PATTERNS.some((re) => re.test(normalized));
+  const hitFacilitation = FACILITATION_PATTERNS.some((re) => re.test(normalized));
+  const hitRiskHint = RISK_HINT_PATTERNS.some((re) => re.test(normalized));
+
+  if (hitIllegalCategory || (hitFacilitation && hitRiskHint)) {
+    return { blocked: true, reason: BLOCK_REASON };
+  }
+
+  return { blocked: false };
+}
+
 export function buildSafetyInput(body: SearchRequest): string {
   const parts = [
     body.query,
@@ -43,30 +53,34 @@ export function buildSafetyInput(body: SearchRequest): string {
     body.refinementType,
     body.intentMode
   ];
-  return normalizeText(parts.filter(Boolean).join(" "));
+  return parts.filter(Boolean).join(" ");
 }
 
 export function checkSearchSafety(body: SearchRequest): SafetyCheckResult {
-  const text = buildSafetyInput(body);
-  const hitIllegalCategory = ILLEGAL_CATEGORY_PATTERNS.some((re) => re.test(text));
-  const hitFacilitation = FACILITATION_PATTERNS.some((re) => re.test(text));
-  const hitRiskHint = RISK_HINT_PATTERNS.some((re) => re.test(text));
+  return checkSafetyText(buildSafetyInput(body));
+}
 
-  if (hitIllegalCategory) {
-    return { blocked: true, reason: "此需求可能涉及違法或高風險服務，因此無法協助搜尋。" };
-  }
+export function checkParsedIntentSafety(parsedIntent: ParsedIntent, generatedQueries: string[]): SafetyCheckResult {
+  const text = [
+    ...parsedIntent.features,
+    ...parsedIntent.keywords,
+    ...parsedIntent.englishKeywords,
+    ...parsedIntent.coreClues,
+    ...parsedIntent.negativeTerms,
+    ...parsedIntent.searchQueries,
+    ...generatedQueries
+  ].join(" ");
+  return checkSafetyText(text);
+}
 
-  if (hitFacilitation && hitRiskHint) {
-    return { blocked: true, reason: "此需求可能涉及違法或高風險服務，因此無法協助搜尋。" };
-  }
-
-  return { blocked: false };
+export function checkGeneratedQueriesSafety(generatedQueries: string[]): SafetyCheckResult {
+  return checkSafetyText(generatedQueries.join(" "));
 }
 
 export function buildBlockedResponse(intentMode: IntentMode) {
   return {
     blocked: true,
-    safetyReason: "此需求可能涉及違法或高風險服務，因此無法協助搜尋。",
+    safetyReason: BLOCK_REASON,
     candidates: [],
     parsedIntent: null,
     intentMode,
