@@ -4,7 +4,8 @@ import { parseIntent } from "@/lib/search/intentParser";
 import { rankCandidates } from "@/lib/search/ranking";
 import { buildRefinedQuery } from "@/lib/search/refinement";
 import { searchImages } from "@/lib/search/serp";
-import type { Candidate, SearchRequest, SearchResponse, SearchSource } from "@/lib/search/types";
+import { buildBlockedResponse, checkSearchSafety } from "@/lib/search/safety";
+import type { Candidate, SearchApiResponse, SearchRequest, SearchResponse, SearchSource } from "@/lib/search/types";
 
 export async function POST(request: Request) {
   const apiKeyStatus = {
@@ -14,6 +15,12 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as SearchRequest;
+
+    const safety = checkSearchSafety(body);
+    if (safety.blocked) {
+      return NextResponse.json(buildBlockedResponse(body.intentMode));
+    }
+
     const parseResult = await parseIntent({
       intentMode: body.intentMode,
       wanted: body.wanted ?? body.query ?? "",
@@ -60,7 +67,7 @@ export async function POST(request: Request) {
       }
     };
 
-    return NextResponse.json(response);
+    return NextResponse.json(response satisfies SearchApiResponse);
   } catch (error) {
     const message = error instanceof Error ? error.message : "search_failed";
     return NextResponse.json(
@@ -75,7 +82,7 @@ export async function POST(request: Request) {
           generatedQueries: [],
           errorMessage: message
         }
-      },
+      } satisfies SearchResponse,
       { status: 500 }
     );
   }
